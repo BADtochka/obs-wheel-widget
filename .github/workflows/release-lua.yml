@@ -1,0 +1,33 @@
+name: Release OBS Lua bridge
+
+on:
+  push:
+    tags:
+      - "lua-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example lua-v1.0.0"
+        required: true
+        default: "lua-v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release with Lua script
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          tag="${INPUT_TAG:-$REF_TAG}"
+          gh release create "$tag" obs_keyboard_bridge.lua \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "OBS Lua bridge $tag" \
+            --generate-notes

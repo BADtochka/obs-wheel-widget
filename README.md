@@ -15,7 +15,7 @@
 
 Для управления без окна **Interact** используйте OBS-скрипт:
 
-<a href="https://github.com/BADtochka/obs-wheel-widget/raw/refs/heads/main/obs_keyboard_bridge.lua?download=1" download="obs_keyboard_bridge.lua">📥 Скачать Lua-скрипт для OBS</a>
+<a href="https://github.com/BADtochka/obs-wheel-widget/releases/latest/download/obs_keyboard_bridge.lua" download="obs_keyboard_bridge.lua">📥 Скачать Lua-скрипт для OBS</a>
 
 Если браузер всё равно открывает текст, скачайте [архив репозитория](https://github.com/BADtochka/obs-wheel-widget/archive/refs/heads/main.zip) и возьмите из него `obs_keyboard_bridge.lua`.
 
