@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ETS Steering OBS Widget</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    #stage {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    #reactive-image {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      transform-origin: 50% 50%;
+      will-change: transform;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    #debug {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      max-width: min(720px, calc(100vw - 24px));
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: #fff;
+      background: rgba(0,0,0,.72);
+      font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap;
+      pointer-events: none;
+    }
+
+    #debug[hidden] { display: none; }
+
+    #missing-image {
+      display: none;
+      color: white;
+      background: rgba(0,0,0,.75);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font: 14px/1.4 system-ui, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <img id="reactive-image" alt="Reactive steering image" />
+    <div id="missing-image">Put your image next to index.html and name it <b>image.png</b>, or change config.js.</div>
+  </div>
+  <pre id="debug" hidden></pre>
+
+  <script src="config.js"></script>
+  <script>
+    (() => {
+      const cfg = Object.assign({
+        image: "image.png",
+        debug: false,
+        steeringAxis: 0,
+        invert: false,
+        deadzone: 0.045,
+        maxRotateDeg: 8,
+        maxMoveXpx: 58,
+        maxMoveYpx: 4,
+        steerExpo: 1.15,
+        smoothing: 0.16,
+        baseScale: 1.06,
+        shakeStartSpeed: 2.6,
+        shakeFullSpeed: 9,
+        shakeMaxXpx: 11,
+        shakeMaxYpx: 6,
+        shakeMaxRotateDeg: 1.6,
+        shakeAttack: 0.32,
+        shakeDecay: 0.12,
+        shakeMinSteer: 0.12,
+        gamepadIndex: null
+      }, window.STEERING_WIDGET_CONFIG || {});
+
+      const img = document.getElementById("reactive-image");
+      const missing = document.getElementById("missing-image");
+      const debug = document.getElementById("debug");
+      const debugEnabled = cfg.debug || new URLSearchParams(location.search).get("debug") === "1";
+      debug.hidden = !debugEnabled;
+
+      img.src = cfg.image;
+      img.addEventListener("error", () => {
+        if (!img.dataset.fallbackTried) {
+          img.dataset.fallbackTried = "1";
+          img.src = "placeholder.svg";
+          return;
+        }
+        img.style.display = "none";
+        missing.style.display = "block";
+      });
+
+      let smoothedSteer = 0;
+      let prevRawSteer = 0;
+      let filteredVelocity = 0;
+      let shake = 0;
+      let lastTime = performance.now();
+      let activePadIndex = null;
+
+      function clamp(v, min, max) {
+        return Math.max(min, Math.min(max, v));
+      }
+
+      function deadzone(v, dz) {
+        const a = Math.abs(v);
+        if (a <= dz) return 0;
+        const normalized = (a - dz) / (1 - dz);
+        return Math.sign(v) * normalized;
+      }
+
+      function applyExpo(v, expo) {
+        return Math.sign(v) * Math.pow(Math.abs(v), Math.max(0.01, expo));
+      }
+
+      function chooseGamepad() {
+        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+        if (cfg.gamepadIndex !== null && cfg.gamepadIndex !== undefined) {
+          return pads[cfg.gamepadIndex] || null;
+        }
+        if (activePadIndex !== null && pads[activePadIndex]) return pads[activePadIndex];
+        for (const pad of pads) {
+          if (pad && pad.connected) {
+            activePadIndex = pad.index;
+            return pad;
+          }
+        }
+        return null;
+      }
+
+      function noise(t, a, b, c) {
+        return (
+          Math.sin(t * a) * 0.52 +
+          Math.sin(t * b + 1.7) * 0.31 +
+          Math.sin(t * c + 4.2) * 0.17
+        );
+      }
+
+      function getWindowScale(rotationDeg) {
+        const width = img.offsetWidth;
+        const height = img.offsetHeight;
+        if (!width || !height) return cfg.baseScale;
+
+        const angle = Math.abs(rotationDeg) * Math.PI / 180;
+        const rotatedWidth = width * Math.cos(angle) + height * Math.sin(angle);
+        const rotatedHeight = width * Math.sin(angle) + height * Math.cos(angle);
+        const paddingX = Math.abs(cfg.maxMoveXpx) + Math.abs(cfg.shakeMaxXpx);
+        const paddingY = Math.abs(cfg.maxMoveYpx) + Math.abs(cfg.shakeMaxYpx);
+        const availableWidth = Math.max(1, window.innerWidth - paddingX * 2);
+        const availableHeight = Math.max(1, window.innerHeight - paddingY * 2);
+
+        return Math.min(
+          cfg.baseScale,
+          availableWidth / rotatedWidth,
+          availableHeight / rotatedHeight
+        );
+      }
+
+      function clampTransform(x, y, rotationDeg, scale) {
+        const width = img.offsetWidth * scale;
+        const height = img.offsetHeight * scale;
+        const angle = Math.abs(rotationDeg) * Math.PI / 180;
+        const boundsWidth = width * Math.cos(angle) + height * Math.sin(angle);
+        const boundsHeight = width * Math.sin(angle) + height * Math.cos(angle);
+        const maxX = Math.max(0, (window.innerWidth - boundsWidth) / 2);
+        const maxY = Math.max(0, (window.innerHeight - boundsHeight) / 2);
+
+        return {
+          x: clamp(x, -maxX, maxX),
+          y: clamp(y, -maxY, maxY)
+        };
+      }
+
+      function render(now) {
+        const dt = clamp((now - lastTime) / 1000, 1 / 240, 0.1);
+        lastTime = now;
+
+        const pad = chooseGamepad();
+        let rawSteer = 0;
+
+        if (pad && pad.axes && pad.axes.length > cfg.steeringAxis) {
+          rawSteer = Number.isFinite(pad.axes[cfg.steeringAxis]) ? pad.axes[cfg.steeringAxis] : 0;
+        }
+        if (cfg.invert) rawSteer *= -1;
+
+        const velocity = (rawSteer - prevRawSteer) / dt;
+        prevRawSteer = rawSteer;
+
+        // Filter one-frame axis spikes while keeping fast steering responsive.
+        const velocityAlpha = 1 - Math.pow(0.025, dt);
+        filteredVelocity += (velocity - filteredVelocity) * velocityAlpha;
+
+        let steer = deadzone(rawSteer, clamp(cfg.deadzone, 0, 0.95));
+        steer = applyExpo(steer, cfg.steerExpo);
+
+        // Frame-rate independent smoothing based on a 60 fps tuning value.
+        const steerAlpha = 1 - Math.pow(1 - clamp(cfg.smoothing, 0.001, 0.999), dt * 60);
+        smoothedSteer += (steer - smoothedSteer) * steerAlpha;
+
+        const speed = Math.abs(filteredVelocity);
+        const shakeRange = Math.max(0.001, cfg.shakeFullSpeed - cfg.shakeStartSpeed);
+        let shakeTarget = clamp((speed - cfg.shakeStartSpeed) / shakeRange, 0, 1);
+        if (Math.abs(rawSteer) < cfg.shakeMinSteer) shakeTarget = 0;
+
+        const rate = shakeTarget > shake ? cfg.shakeAttack : cfg.shakeDecay;
+        const shakeAlpha = 1 - Math.pow(1 - clamp(rate, 0.001, 0.999), dt * 60);
+        shake += (shakeTarget - shake) * shakeAlpha;
+
+        const seconds = now / 1000;
+        const shakeX = noise(seconds, 37.1, 61.7, 89.3) * cfg.shakeMaxXpx * shake;
+        const shakeY = noise(seconds, 43.7, 73.9, 97.1) * cfg.shakeMaxYpx * shake;
+        const shakeR = noise(seconds, 31.9, 53.3, 83.9) * cfg.shakeMaxRotateDeg * shake;
+
+        const rawX = smoothedSteer * cfg.maxMoveXpx + shakeX;
+        const rawY = Math.abs(smoothedSteer) * cfg.maxMoveYpx + shakeY;
+        const r = smoothedSteer * cfg.maxRotateDeg + shakeR;
+        const scale = getWindowScale(Math.abs(r) + cfg.shakeMaxRotateDeg);
+        const position = clampTransform(rawX, rawY, r, scale);
+
+        img.style.transform = `translate3d(${position.x.toFixed(2)}px, ${position.y.toFixed(2)}px, 0) rotate(${r.toFixed(3)}deg) scale(${scale.toFixed(4)})`;
+
+        if (debugEnabled) {
+          if (!pad) {
+            debug.textContent = "No gamepad detected. Press a button or move a stick.\nGamepad API: " + (navigator.getGamepads ? "available" : "unavailable");
+          } else {
+            const axes = Array.from(pad.axes || []).map((v, i) => `${i}: ${v.toFixed(4)}${i === cfg.steeringAxis ? "  <- steering" : ""}`).join("\n");
+            debug.textContent =
+              `Gamepad #${pad.index}: ${pad.id}\n` +
+              `mapping: ${pad.mapping || "(none)"}\n` +
+              `raw steer: ${rawSteer.toFixed(4)}\n` +
+              `smoothed: ${smoothedSteer.toFixed(4)}\n` +
+              `speed: ${speed.toFixed(2)} axis/s\n` +
+              `shake: ${(shake * 100).toFixed(0)}%\n\nAxes:\n${axes}`;
+          }
+        }
+
+        requestAnimationFrame(render);
+      }
+
+      window.addEventListener("gamepadconnected", (event) => {
+        if (cfg.gamepadIndex === null || cfg.gamepadIndex === undefined) {
+          activePadIndex = event.gamepad.index;
+        }
+      });
+
+      window.addEventListener("gamepaddisconnected", (event) => {
+        if (activePadIndex === event.gamepad.index) activePadIndex = null;
+      });
+
+      requestAnimationFrame(render);
+    })();
+  </script>
+</body>
+</html>
