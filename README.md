@@ -1,48 +1,57 @@
-# ETS Steering OBS Widget
+# ETS Steering OBS Widget 🏎️
 
-A transparent OBS Browser Source that reacts to a gamepad steering axis.
+Прозрачный Browser Source для OBS, который реагирует на руль или геймпад: картинка вращается, двигается и сильно трясётся при резких движениях.
 
-## Install
+## Установка 🚀
 
-1. Put your picture into this folder as `image.png`.
-2. In OBS: **Sources → + → Browser**.
-3. Enable **Local file** and choose `index.html`.
-4. Set the Browser Source size to match your canvas, e.g. **1920×1080**.
-5. Enable **Use custom frame rate → 60 FPS** for smoother motion/shake.
-6. Move the gamepad stick/wheel. The first connected gamepad is used automatically.
+1. Положите картинку рядом с файлами виджета и назовите её `image.png`.
+2. В OBS откройте **Sources → + → Browser**.
+3. Включите **Local file** и выберите `index.html`.
+4. Установите размер Browser Source под ваш холст, например `1920×1080`.
+5. Включите **Use custom frame rate → 60 FPS** для плавного движения и шейка.
+6. Подключите руль или геймпад. По умолчанию используется первый подключённый контроллер.
 
-OBS Browser Source is CEF-based, and Gamepad API overlays are commonly used directly inside OBS Browser Source.
+## Управление с клавиатуры ⌨️
 
-## If steering does not react
+Для управления без окна **Interact** используйте OBS-скрипт:
 
-Set `debug: true` in `config.js`. The debug panel shows every gamepad axis, steering speed and shake amount. You can also use `?debug=1` when opening the page in a normal browser.
+1. В OBS откройте **Tools → Scripts** и добавьте `obs_keyboard_bridge.lua`.
+2. В настройках скрипта выберите нужный Browser Source из списка и нажмите **Apply**.
+3. Откройте **Settings → Hotkeys** и в поиске введите `ETS Steering`.
+4. Найдите команды `ETS Steering: hold left` и `ETS Steering: hold right`.
+5. Нажмите поле справа от `hold left`, нажмите нужную клавишу, например `A`, затем нажмите **Apply**.
+6. Назначьте `D` для `hold right` и снова нажмите **Apply**.
+7. Проверьте, что напротив обеих команд отображаются клавиши, а не `None`.
+8. Оставьте Browser Source загруженным и видимым.
 
-Turn the steering control and find which axis changes from roughly `-1` to `+1`, then set it in `config.js`:
+Для игры выберите свободные клавиши, чтобы они не конфликтовали с другими действиями.
+
+## Если руль не реагирует 🔧
+
+Установите `debug: true` в `config.js`. Отладочная панель покажет оси контроллера, скорость движения и силу шейка. Также можно открыть страницу с параметром `?debug=1`.
+
+Поверните руль и найдите ось, которая изменяется примерно от `-1` до `+1`, затем укажите её в `config.js`:
 
 ```js
 steeringAxis: 0,
 ```
 
-Typical XInput left-stick X is axis `0`.
+Для обычного XInput левый стик по горизонтали обычно находится на оси `0`.
 
-## Main tuning
+## Настройка 🎛️
 
-Edit `config.js`:
+Изменяйте значения в `config.js`:
 
-- `debug` — show/hide the live controller diagnostics.
-- `maxRotateDeg` — image rotation at full steering lock.
-- `maxMoveXpx` — horizontal movement at full lock.
-- `smoothing` — steering smoothing.
-- `deadzone` — ignores controller noise near center.
-- `shakeStartSpeed` — how fast the steering must move before shake starts.
-- `shakeFullSpeed` — speed that gives maximum shake.
-- `shakeMaxXpx`, `shakeMaxYpx`, `shakeMaxRotateDeg` — shake strength.
-- `shakeAttack`, `shakeDecay` — how quickly shake appears/disappears.
-- `invert` — reverse steering direction.
+- `debug` — показать или скрыть диагностику контроллера.
+- `maxRotateDeg` — максимальный угол вращения картинки.
+- `maxMoveXpx` — максимальное горизонтальное перемещение.
+- `smoothing` — плавность реакции руля.
+- `deadzone` — игнорирование шума около центрального положения.
+- `shakeStartSpeed` — скорость, с которой начинается шейк.
+- `shakeFullSpeed` — скорость для максимальной силы шейка.
+- `shakeMaxXpx`, `shakeMaxYpx`, `shakeMaxRotateDeg` — амплитуда шейка.
+- `shakeAttack`, `shakeDecay` — скорость появления и затухания шейка.
+- `invert` — инвертировать направление.
+- `keyboardEnabled` — включить управление с клавиатуры.
 
-## Recommended starting values
-
-The included config is tuned so normal steering is smooth, while a fast flick/rapid correction triggers visible shake.
-
-If shake happens too often, raise `shakeStartSpeed` from `2.6` to `3.5–4.5`.
-If it almost never happens, lower it to `1.8–2.2`.
+Размер картинки и область движения автоматически ограничиваются размером окна Browser Source 📐

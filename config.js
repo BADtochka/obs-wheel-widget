@@ -9,6 +9,7 @@ window.STEERING_WIDGET_CONFIG = {
   // Open index.html?debug=1 in a browser/OBS interaction window to inspect axes.
   steeringAxis: 0,
   invert: true,
+  keyboardEnabled: true,
 
   // Ignore tiny stick/wheel noise around center.
   deadzone: 0.02,

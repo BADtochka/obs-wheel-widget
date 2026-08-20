@@ -71,6 +71,7 @@
   <pre id="debug" hidden></pre>
 
   <script src="config.js"></script>
+  <script src="obs_keyboard_client.js"></script>
   <script>
     (() => {
       const cfg = Object.assign({
@@ -78,6 +79,7 @@
         debug: false,
         steeringAxis: 0,
         invert: false,
+        keyboardEnabled: true,
         deadzone: 0.045,
         maxRotateDeg: 8,
         maxMoveXpx: 58,
@@ -119,6 +121,8 @@
       let shake = 0;
       let lastTime = performance.now();
       let activePadIndex = null;
+      const keyboardKeys = new Set();
+      const obsKeyboardKeys = new Set();
 
       function clamp(v, min, max) {
         return Math.max(min, Math.min(max, v));
@@ -148,6 +152,13 @@
           }
         }
         return null;
+      }
+
+      function getKeyboardSteer() {
+        if (!cfg.keyboardEnabled) return 0;
+        const left = keyboardKeys.has("ArrowLeft") || keyboardKeys.has("a") || obsKeyboardKeys.has("obs-left");
+        const right = keyboardKeys.has("ArrowRight") || keyboardKeys.has("d") || obsKeyboardKeys.has("obs-right");
+        return (right ? 1 : 0) - (left ? 1 : 0);
       }
 
       function noise(t, a, b, c) {
@@ -203,6 +214,8 @@
         if (pad && pad.axes && pad.axes.length > cfg.steeringAxis) {
           rawSteer = Number.isFinite(pad.axes[cfg.steeringAxis]) ? pad.axes[cfg.steeringAxis] : 0;
         }
+        const keyboardSteer = getKeyboardSteer();
+        if (keyboardSteer) rawSteer = keyboardSteer;
         if (cfg.invert) rawSteer *= -1;
 
         const velocity = (rawSteer - prevRawSteer) / dt;
@@ -267,6 +280,24 @@
 
       window.addEventListener("gamepaddisconnected", (event) => {
         if (activePadIndex === event.gamepad.index) activePadIndex = null;
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "a", "d"].includes(event.key)) {
+          keyboardKeys.add(event.key);
+          event.preventDefault();
+        }
+      });
+
+      window.addEventListener("keyup", (event) => {
+        keyboardKeys.delete(event.key);
+      });
+
+      window.addEventListener("blur", () => keyboardKeys.clear());
+
+      window.addEventListener("etsSteeringKeyboardState", (event) => {
+        obsKeyboardKeys.clear();
+        for (const key of event.detail) obsKeyboardKeys.add(key);
       });
 
       requestAnimationFrame(render);
